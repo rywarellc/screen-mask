@@ -27,6 +27,8 @@ export round-trip that reads pixels back out of the encoded file).
 4. Repeat for each thing you need hidden. The strip under the scrubber shows
    which parts of the timeline each mask covers.
 5. **Export…** writes a `.mov` with the masks burned in.
+6. **Close Video** clears the window so you can start on another one. The
+   masks you set are kept and come back if you reopen that video.
 
 The preview is the export: both run the same composition, so what you see on the
 playhead is exactly what lands in the file.

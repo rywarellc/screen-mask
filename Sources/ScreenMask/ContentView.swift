@@ -21,6 +21,11 @@ struct ContentView: View {
             ToolbarItem(placement: .navigation) {
                 Button("Open Video…", systemImage: "folder") { openVideo() }
             }
+            ToolbarItem(placement: .navigation) {
+                Button("Close Video", systemImage: "xmark.circle") { model.closeVideo() }
+                    .disabled(!model.hasVideo || model.isExporting)
+                    .help("Close this video and start over. Its masks are kept.")
+            }
             ToolbarItem {
                 Button("Export…", systemImage: "square.and.arrow.up") { exportVideo() }
                     .disabled(!model.hasVideo || model.isExporting)

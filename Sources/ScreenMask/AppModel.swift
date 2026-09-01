@@ -37,6 +37,7 @@ final class AppModel {
     private let ciContext = CIContext()
     private let documents: MaskDocumentStore
     private var saveTask: Task<Void, Never>?
+    private var isClosing = false
     private var terminationObserver: NSObjectProtocol?
 
     init(documents: MaskDocumentStore = .defaultStore()) {
@@ -112,6 +113,37 @@ final class AppModel {
                 self.currentTime = time.seconds
             }
         }
+    }
+
+    /// Returns to the empty state, ready for another video.
+    ///
+    /// Order matters: the current masks are flushed to disk *before* `url` is
+    /// cleared, and `regions` is emptied only after. Emptying regions while the
+    /// URL is still set would schedule a save of an empty list, which deletes the
+    /// document — silently destroying the masks for a video the user only meant
+    /// to close. `isClosing` guards the same hazard a second way.
+    func closeVideo() {
+        flushSave()
+        isClosing = true
+        defer { isClosing = false }
+
+        player.pause()
+        player.replaceCurrentItem(with: nil)
+        if let timeObserver {
+            player.removeTimeObserver(timeObserver)
+            self.timeObserver = nil
+        }
+
+        url = nil
+        asset = nil
+        composition = nil
+        regions = []
+        selection = nil
+        duration = 0
+        currentTime = 0
+        isPlaying = false
+        isPickingColor = false
+        videoSize = CGSize(width: 16, height: 9)
     }
 
     // MARK: - Transport
@@ -218,7 +250,7 @@ final class AppModel {
 
     /// Coalesces the rapid edits a drag produces into one write.
     private func scheduleSave() {
-        guard let url else { return }
+        guard !isClosing, let url else { return }
         let snapshot = regions
         let documents = self.documents
         saveTask?.cancel()

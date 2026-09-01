@@ -15,6 +15,13 @@ let package = Package(
             dependencies: ["ScreenMaskKit"],
             path: "Sources/ScreenMask"
         ),
+        // Covers AppModel, which lives in the executable target because it owns
+        // the player and the SwiftUI state.
+        .testTarget(
+            name: "ScreenMaskAppTests",
+            dependencies: ["ScreenMask", "ScreenMaskKit"],
+            path: "Tests/ScreenMaskAppTests"
+        ),
         .testTarget(
             name: "ScreenMaskKitTests",
             dependencies: ["ScreenMaskKit"],
