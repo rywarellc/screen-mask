@@ -1,4 +1,5 @@
 import AVFoundation
+import AppKit
 import Foundation
 import Testing
 
@@ -95,4 +96,54 @@ func steppingIsRefusedWhenItShouldNotApply() async throws {
     model.togglePlayback()
     #expect(!model.isPlaying)
     #expect(model.stepFrame(1), "should step again once paused")
+}
+
+// MARK: - Key handling
+//
+// This is the layer that actually broke: stepFrame worked, but the keys never
+// reached it. These drive the same entry point the event monitor calls.
+
+@MainActor
+@Test("Right and left arrows step the video")
+func arrowKeysStepTheVideo() async throws {
+    let (model, directory) = try await openFixture()
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    let start = model.currentTime
+    #expect(model.handleKeyDown(keyCode: KeyCode.rightArrow, modifiers: []),
+            "right arrow should be consumed")
+    let forward = try await awaitTimeChange(model, from: start)
+    #expect(forward > start, "right arrow should advance, went \(start) -> \(forward)")
+
+    #expect(model.handleKeyDown(keyCode: KeyCode.leftArrow, modifiers: []),
+            "left arrow should be consumed")
+    let back = try await awaitTimeChange(model, from: forward)
+    #expect(back < forward, "left arrow should rewind, went \(forward) -> \(back)")
+}
+
+@MainActor
+@Test("Other keys and modified arrows are passed through")
+func unrelatedKeysArePassedThrough() async throws {
+    let (model, directory) = try await openFixture()
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    // Space (49) belongs to the play button; letters belong to whatever has focus.
+    #expect(model.handleKeyDown(keyCode: 49, modifiers: []) == false, "space is not ours")
+    #expect(model.handleKeyDown(keyCode: 0, modifiers: []) == false, "letters are not ours")
+
+    // Modified arrows belong to the system and to text navigation.
+    for modifier in [NSEvent.ModifierFlags.command, .option, .control] {
+        #expect(model.handleKeyDown(keyCode: KeyCode.rightArrow, modifiers: modifier) == false,
+                "modified arrows should pass through: \(modifier)")
+    }
+    // Shift alone isn't a system combo, so it still steps.
+    #expect(model.handleKeyDown(keyCode: KeyCode.rightArrow, modifiers: .shift))
+}
+
+@MainActor
+@Test("Arrows are passed through when there is no video")
+func arrowsPassThroughWithNoVideo() {
+    let model = AppModel(documents: MaskDocumentStore(directory: FileManager.default.temporaryDirectory))
+    #expect(model.handleKeyDown(keyCode: KeyCode.rightArrow, modifiers: []) == false)
+    #expect(model.handleKeyDown(keyCode: KeyCode.leftArrow, modifiers: []) == false)
 }

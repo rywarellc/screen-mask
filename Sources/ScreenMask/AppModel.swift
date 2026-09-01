@@ -1,8 +1,14 @@
 import AVFoundation
+import AppKit
 import CoreImage
 import Observation
 import SwiftUI
 import ScreenMaskKit
+
+enum KeyCode {
+    static let leftArrow: UInt16 = 123
+    static let rightArrow: UInt16 = 124
+}
 
 @MainActor
 @Observable
@@ -40,6 +46,8 @@ final class AppModel {
     private var saveTask: Task<Void, Never>?
     private var isClosing = false
     private var terminationObserver: NSObjectProtocol?
+    // Read from deinit, which is nonisolated; only ever written on the main actor.
+    nonisolated(unsafe) private var keyMonitor: Any?
 
     init(documents: MaskDocumentStore = .defaultStore()) {
         self.documents = documents
@@ -51,6 +59,11 @@ final class AppModel {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.flushSave() }
         }
+        installKeyMonitor()
+    }
+
+    deinit {
+        if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
     }
 
     var hasVideo: Bool { asset != nil }
@@ -163,6 +176,41 @@ final class AppModel {
             player.play()
         }
         isPlaying.toggle()
+    }
+
+    /// Handles a key event, returning whether it was consumed.
+    ///
+    /// Driven by an AppKit event monitor rather than SwiftUI's `onKeyPress`,
+    /// which only fires while that exact view holds focus. In practice focus
+    /// sits on the scrubber or the mask list — and a focused slider eats the
+    /// arrow keys itself — so the keys did nothing.
+    ///
+    /// Text editing still wins, so arrows move the caret when renaming a mask.
+    func handleKeyDown(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> Bool {
+        guard keyCode == KeyCode.leftArrow || keyCode == KeyCode.rightArrow else { return false }
+        guard modifiers.isDisjoint(with: [.command, .option, .control]) else { return false }
+
+        // NSApp is an implicitly-unwrapped optional and is nil when no
+        // NSApplication exists, so bind it rather than dotting straight through.
+        if let app = NSApp,
+           let responder = app.keyWindow?.firstResponder,
+           responder is NSTextView || responder is NSTextField {
+            return false
+        }
+        return stepFrame(keyCode == KeyCode.rightArrow ? 1 : -1)
+    }
+
+    private func installKeyMonitor() {
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            // NSEvent isn't Sendable, so only the two Sendable fields cross into
+            // the isolated call; the event itself never leaves this closure.
+            let keyCode = event.keyCode
+            let modifiers = event.modifierFlags
+            let consumed = MainActor.assumeIsolated {
+                self?.handleKeyDown(keyCode: keyCode, modifiers: modifiers) ?? false
+            }
+            return consumed ? nil : event
+        }
     }
 
     /// Steps whole frames while paused.

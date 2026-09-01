@@ -9,7 +9,6 @@ let dropLog = Logger(subsystem: "local.screenmask", category: "drop")
 struct ContentView: View {
     @State private var model = AppModel()
     @State private var isTargeted = false
-    @FocusState private var stageFocused: Bool
 
     var body: some View {
         HStack(spacing: 0) {

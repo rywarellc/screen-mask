@@ -32,8 +32,8 @@ export round-trip that reads pixels back out of the encoded file).
 
 Space plays and pauses. While paused, the left and right arrow keys step one
 frame at a time — useful for finding the exact frame something appears on when
-setting a mask's in and out points. Click the video first if the arrows aren't
-doing anything; they're scoped to the video so they don't fight the mask list.
+setting a mask's in and out points. The arrows work wherever you are in the
+window, except while you're typing a mask's name.
 
 The preview is the export: both run the same composition, so what you see on the
 playhead is exactly what lands in the file.
