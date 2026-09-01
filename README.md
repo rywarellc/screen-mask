@@ -49,3 +49,14 @@ when you want the viewer to see that something is there without reading it.
   `~/Library/Application Support/ScreenMask/Masks`, keyed by a hash of the
   video's path, so nothing is written next to your original files. Moving or
   renaming a video starts it fresh.
+
+## Contributing
+
+Fork it and open a pull request. CI has to pass before a PR can be merged —
+it runs `swift build`, `swift test`, and assembles the app bundle.
+
+If you're changing masking behaviour, add a test. The ones in
+`Tests/ScreenMaskKitTests` cover the parts that fail quietly rather than
+loudly: the coordinate flip between the top-left rects the UI works in and
+the bottom-left space Core Image draws in, time-range gating, and a full
+export that reads pixels back out of the encoded file.
