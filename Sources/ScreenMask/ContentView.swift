@@ -1,7 +1,10 @@
 import AVFoundation
+import OSLog
 import SwiftUI
 import UniformTypeIdentifiers
 import ScreenMaskKit
+
+let dropLog = Logger(subsystem: "local.screenmask", category: "drop")
 
 struct ContentView: View {
     @State private var model = AppModel()
@@ -23,8 +26,8 @@ struct ContentView: View {
                     .disabled(!model.hasVideo || model.isExporting)
             }
         }
-        .onDrop(of: [.movie, .video, .fileURL], isTargeted: $isTargeted) { providers in
-            load(from: providers)
+        .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in
+            receive(providers)
         }
         .overlay {
             if model.isExporting { exportOverlay }
@@ -154,10 +157,30 @@ struct ContentView: View {
         Task { await model.open(url) }
     }
 
-    private func load(from providers: [NSItemProvider]) -> Bool {
-        guard let provider = providers.first else { return false }
-        _ = provider.loadObject(ofClass: URL.self) { url, _ in
-            guard let url else { return }
+    /// Accepts `.fileURL` only. A QuickTime movie doesn't conform to
+    /// `public.video`, and matching on `public.movie` buys nothing over the file
+    /// URL every Finder drag carries — so the narrow, always-present type is the
+    /// reliable one to register for.
+    private func receive(_ providers: [NSItemProvider]) -> Bool {
+        let fileURLType = UTType.fileURL.identifier
+        guard let provider = providers.first(where: {
+            $0.hasItemConformingToTypeIdentifier(fileURLType)
+        }) else {
+            dropLog.error("drop rejected: no provider carried a file URL")
+            model.errorMessage = "That doesn't look like a file this app can open."
+            return false
+        }
+
+        dropLog.info("drop accepted: \(provider.registeredTypeIdentifiers, privacy: .public)")
+        provider.loadDataRepresentation(forTypeIdentifier: fileURLType) { data, error in
+            guard let data, let url = URL(dataRepresentation: data, relativeTo: nil) else {
+                dropLog.error("drop failed to decode a URL: \(String(describing: error), privacy: .public)")
+                Task { @MainActor in
+                    model.errorMessage = "Couldn't read the dropped file. Try Open Video… instead."
+                }
+                return
+            }
+            dropLog.info("drop resolved: \(url.path, privacy: .public)")
             Task { @MainActor in await model.open(url) }
         }
         return true
