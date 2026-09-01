@@ -94,7 +94,7 @@ private func frame(of asset: AVAsset, at seconds: Double) async throws -> CIImag
     return CIImage(cgImage: image)
 }
 
-@Test("A masked export bakes the mask into the file, only within its time range")
+@Test("A masked export bakes the mask in, only within its time range, reporting progress")
 func exportedFileCarriesTheMask() async throws {
     let directory = FileManager.default.temporaryDirectory
         .appendingPathComponent("screenmask-tests-\(UUID().uuidString)")
@@ -121,8 +121,18 @@ func exportedFileCarriesTheMask() async throws {
     let composition = try await MaskCompositor.makeVideoComposition(for: asset, store: store)
     #expect(composition.renderSize == size)
 
-    try await MaskCompositor.export(asset: asset, composition: composition, to: outputURL) { _ in }
+    // One export covers both the pixels and the progress reporting. Encoding
+    // twice for two tests is the most expensive thing in this suite, and on a
+    // CI VM the codec is shared and contended.
+    let samples = Samples()
+    try await MaskCompositor.export(asset: asset, composition: composition, to: outputURL) { value in
+        samples.record(value)
+    }
     #expect(FileManager.default.fileExists(atPath: outputURL.path))
+
+    let observed = samples.values
+    #expect(observed.allSatisfy { $0 >= 0 && $0 <= 1 }, "progress out of range: \(observed)")
+    #expect(observed == observed.sorted(), "progress went backwards: \(observed)")
 
     let exported = AVURLAsset(url: outputURL)
 
@@ -143,34 +153,6 @@ func exportedFileCarriesTheMask() async throws {
         let pixel = sample(clear, at: inMask)
         #expect(pixel.r > 180, "top-left should be clear at \(time)s, got \(pixel)")
     }
-}
-
-@Test("Export reports progress and finishes at 100%")
-func exportReportsProgress() async throws {
-    let directory = FileManager.default.temporaryDirectory
-        .appendingPathComponent("screenmask-progress-\(UUID().uuidString)")
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: directory) }
-
-    let sourceURL = directory.appendingPathComponent("source.mov")
-    let outputURL = directory.appendingPathComponent("masked.mov")
-    try await writeWhiteClip(to: sourceURL, size: CGSize(width: 640, height: 360), seconds: 3, fps: 30)
-
-    let asset = AVURLAsset(url: sourceURL)
-    let store = RegionStore()
-    store.regions = [
-        MaskRegion(rect: CGRect(x: 0, y: 0, width: 0.5, height: 0.5), start: 0, end: 3, style: .solid(color: .black))
-    ]
-    let composition = try await MaskCompositor.makeVideoComposition(for: asset, store: store)
-
-    let samples = Samples()
-    try await MaskCompositor.export(asset: asset, composition: composition, to: outputURL) { value in
-        samples.record(value)
-    }
-
-    let observed = samples.values
-    #expect(observed.allSatisfy { $0 >= 0 && $0 <= 1 }, "progress out of range: \(observed)")
-    #expect(observed == observed.sorted(), "progress went backwards: \(observed)")
 }
 
 private final class Samples: @unchecked Sendable {

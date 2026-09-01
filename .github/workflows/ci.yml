@@ -17,10 +17,12 @@ jobs:
       - name: Build
         run: swift build
 
-      # Two of these encode and decode real video. If the runner turns out to
-      # lack a usable VideoToolbox encoder, those are the ones that will fail.
+      # Serialized on purpose. Several tests encode and decode real video, and
+      # the runner's paravirtualised codec fails under concurrent load
+      # ("Cannot Decode", AppleM2ScalerParavirtDriver). Locally, on real
+      # hardware, plain `swift test` runs them in parallel just fine.
       - name: Test
-        run: swift test
+        run: swift test --no-parallel
 
       - name: Assemble app bundle
         run: ./build.sh
