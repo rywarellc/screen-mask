@@ -63,8 +63,26 @@ struct ContentView: View {
                             }
                         }
                         .padding(12)
+                        .pointerStyle(model.isPickingColor ? .rectSelection : nil)
                 } else {
                     placeholder
+                }
+
+                if model.isPickingColor {
+                    VStack {
+                        HStack(spacing: 10) {
+                            Image(systemName: "eyedropper")
+                            Text("Click anywhere in the video to sample a colour")
+                            Button("Cancel") { model.isPickingColor = false }
+                                .controlSize(.small)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 9)
+                        .background(.regularMaterial, in: Capsule())
+                        .padding(.top, 18)
+                        Spacer()
+                    }
+                    .allowsHitTesting(true)
                 }
             }
             .overlay {

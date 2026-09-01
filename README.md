@@ -33,7 +33,13 @@ playhead is exactly what lands in the file.
 
 ## Pixelate vs. Solid
 
-**Solid** paints an opaque black box. **Pixelate** mosaics the region.
+**Solid** paints an opaque box. **Pixelate** mosaics the region.
+
+Solid masks can be any colour, and the eyedropper next to the colour well
+samples one straight off the video — match the terminal background and the
+box reads as part of the recording instead of a black rectangle drawn over
+it. The eyedropper reads the original frame, so clicking inside a mask you've
+already placed samples what's underneath rather than the mask itself.
 
 Use Solid for anything you actually publish. Pixelation of short, predictable
 text — an email address, a key with a known format — can sometimes be reversed,

@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreImage
 import Observation
 import SwiftUI
 import ScreenMaskKit
@@ -20,6 +21,8 @@ final class AppModel {
     }
     var selection: MaskRegion.ID?
 
+    /// Armed by the eyedropper button; the next click on the video samples.
+    var isPickingColor = false
     var isExporting = false
     var exportProgress: Double = 0
     var errorMessage: String?
@@ -31,6 +34,7 @@ final class AppModel {
     private var composition: AVVideoComposition?
     private var timeObserver: Any?
     private var lastRefresh = Date.distantPast
+    private let ciContext = CIContext()
     private let documents: MaskDocumentStore
     private var saveTask: Task<Void, Never>?
     private var terminationObserver: NSObjectProtocol?
@@ -83,6 +87,8 @@ final class AppModel {
             // clamped, and after `url` so the didSet save targets the right file.
             self.regions = (documents.load(for: url) ?? [])
                 .compactMap { $0.clamped(toDuration: self.duration) }
+
+            self.isPickingColor = false
 
             let item = AVPlayerItem(asset: asset)
             item.videoComposition = composition
@@ -172,6 +178,7 @@ final class AppModel {
     }
 
     func delete(_ id: MaskRegion.ID) {
+        isPickingColor = false
         regions.removeAll { $0.id == id }
         if selection == id { selection = nil }
         refreshPreview(force: true)
@@ -179,6 +186,32 @@ final class AppModel {
 
     func deleteSelected() {
         if let selection { delete(selection) }
+    }
+
+    // MARK: - Eyedropper
+
+    /// Samples the *original* frame rather than the composited one, so clicking
+    /// inside an existing mask reads what's underneath instead of the mask itself.
+    func pickColor(atNormalized point: CGPoint) async {
+        defer { isPickingColor = false }
+        guard let asset, let selection else { return }
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.requestedTimeToleranceBefore = .zero
+        generator.requestedTimeToleranceAfter = .zero
+        do {
+            let (frame, _) = try await generator.image(
+                at: CMTime(seconds: currentTime, preferredTimescale: 600)
+            )
+            guard let color = MaskCompositor.color(
+                from: CIImage(cgImage: frame),
+                atNormalized: point,
+                context: ciContext
+            ) else { return }
+            update(selection) { $0.style = .solid(color: color) }
+        } catch {
+            errorMessage = "Couldn't sample that pixel: \(error.localizedDescription)"
+        }
     }
 
     // MARK: - Persistence

@@ -82,7 +82,7 @@ func solidMaskLandsOnTheCorrectQuadrant() {
         rect: CGRect(x: 0, y: 0, width: 0.5, height: 0.5),
         start: 0,
         end: 10,
-        style: .solid
+        style: .solid(color: .black)
     )
     let output = MaskCompositor.apply(regions: [region], to: quadrantImage(), at: 5)
 
@@ -101,7 +101,7 @@ func masksRespectTimeRange() {
         rect: CGRect(x: 0, y: 0, width: 0.5, height: 0.5),
         start: 2,
         end: 4,
-        style: .solid
+        style: .solid(color: .black)
     )
     let source = quadrantImage()
 
@@ -120,9 +120,9 @@ func masksRespectTimeRange() {
 @Test("Several regions with different windows coexist")
 func multipleRegionsWithDistinctWindows() {
     let early = MaskRegion(
-        rect: CGRect(x: 0, y: 0, width: 0.5, height: 0.5), start: 0, end: 2, style: .solid)
+        rect: CGRect(x: 0, y: 0, width: 0.5, height: 0.5), start: 0, end: 2, style: .solid(color: .black))
     let late = MaskRegion(
-        rect: CGRect(x: 0.5, y: 0, width: 0.5, height: 0.5), start: 8, end: 10, style: .solid)
+        rect: CGRect(x: 0.5, y: 0, width: 0.5, height: 0.5), start: 8, end: 10, style: .solid(color: .black))
     let source = quadrantImage()
 
     let atOne = MaskCompositor.apply(regions: [early, late], to: source, at: 1)

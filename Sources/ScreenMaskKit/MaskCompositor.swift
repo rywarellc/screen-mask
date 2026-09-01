@@ -39,8 +39,8 @@ public enum MaskCompositor {
             guard let rect = pixelRect(region.rect, in: extent) else { continue }
 
             switch region.style {
-            case .solid:
-                output = CIImage(color: CIColor.black)
+            case .solid(let color):
+                output = CIImage(color: color.ciColor)
                     .cropped(to: rect)
                     .composited(over: output)
 
@@ -59,6 +59,47 @@ public enum MaskCompositor {
             }
         }
         return output
+    }
+
+    /// Reads a single pixel, for the eyedropper.
+    ///
+    /// `point` is normalized with a top-left origin, matching the rects the UI
+    /// works in. Callers pass the *original* frame rather than the composited
+    /// one, so clicking inside an existing mask samples what's underneath it
+    /// instead of the mask's own colour.
+    public static func color(
+        from source: CIImage,
+        atNormalized point: CGPoint,
+        context: CIContext
+    ) -> MaskColor? {
+        let extent = source.extent
+        guard extent.width > 0, extent.height > 0, extent.width.isFinite, extent.height.isFinite
+        else { return nil }
+
+        // Scaled across (size - 1) so a click on the far edge lands on the last
+        // pixel rather than one past it — at 1.0 the naive mapping falls outside
+        // the extent and samples nothing.
+        let clampedX = min(max(point.x, 0), 1)
+        let clampedY = min(max(point.y, 0), 1)
+        let x = (extent.minX + clampedX * (extent.width - 1)).rounded(.down)
+        let y = (extent.minY + (1 - clampedY) * (extent.height - 1)).rounded(.down)
+        let pixel = CGRect(x: x, y: y, width: 1, height: 1)
+        guard extent.contains(CGPoint(x: x, y: y)) else { return nil }
+
+        var bytes = [UInt8](repeating: 0, count: 4)
+        context.render(
+            source,
+            toBitmap: &bytes,
+            rowBytes: 4,
+            bounds: pixel,
+            format: .RGBA8,
+            colorSpace: MaskColor.workingSpace
+        )
+        return MaskColor(
+            red: Double(bytes[0]) / 255,
+            green: Double(bytes[1]) / 255,
+            blue: Double(bytes[2]) / 255
+        )
     }
 
     /// Builds the composition once; it reads live from `store` on every frame.
@@ -107,6 +148,18 @@ public enum MaskCompositor {
         }
         defer { progressTask.cancel() }
         try await box.value.export(to: url, as: .mov)
+    }
+}
+
+extension MaskColor {
+    /// Sampling and filling both go through sRGB, so a colour picked off the
+    /// video paints back as the same colour rather than drifting through Core
+    /// Image's linear working space.
+    public static let workingSpace = CGColorSpace(name: CGColorSpace.sRGB)!
+
+    public var ciColor: CIColor {
+        CIColor(red: red, green: green, blue: blue, alpha: 1, colorSpace: MaskColor.workingSpace)
+            ?? CIColor(red: red, green: green, blue: blue)
     }
 }
 

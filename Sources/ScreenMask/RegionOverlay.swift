@@ -86,14 +86,30 @@ struct RegionOverlay: View {
         .gesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { value in
+                    // While the eyedropper is armed a press samples rather than
+                    // draws, so no drag state is started.
+                    guard !model.isPickingColor else { return }
                     if drag == nil { begin(at: value.startLocation) }
                     advance(to: value.location)
                 }
                 .onEnded { value in
+                    if model.isPickingColor {
+                        sampleColor(at: value.location)
+                        return
+                    }
                     advance(to: value.location)
                     commit()
                 }
         )
+    }
+
+    private func sampleColor(at point: CGPoint) {
+        guard size.width > 0, size.height > 0 else { return }
+        let normalized = CGPoint(
+            x: min(max(point.x / size.width, 0), 1),
+            y: min(max(point.y / size.height, 0), 1)
+        )
+        Task { await model.pickColor(atNormalized: normalized) }
     }
 
     // MARK: - Geometry

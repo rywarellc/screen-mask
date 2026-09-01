@@ -114,7 +114,7 @@ func exportedFileCarriesTheMask() async throws {
             rect: CGRect(x: 0, y: 0, width: 0.5, height: 0.5),
             start: 1.0,
             end: 2.0,
-            style: .solid
+            style: .solid(color: .black)
         )
     ]
 
@@ -159,7 +159,7 @@ func exportReportsProgress() async throws {
     let asset = AVURLAsset(url: sourceURL)
     let store = RegionStore()
     store.regions = [
-        MaskRegion(rect: CGRect(x: 0, y: 0, width: 0.5, height: 0.5), start: 0, end: 3, style: .solid)
+        MaskRegion(rect: CGRect(x: 0, y: 0, width: 0.5, height: 0.5), start: 0, end: 3, style: .solid(color: .black))
     ]
     let composition = try await MaskCompositor.makeVideoComposition(for: asset, store: store)
 

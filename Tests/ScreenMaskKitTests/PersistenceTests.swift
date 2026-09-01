@@ -14,7 +14,7 @@ private func sampleRegions() -> [MaskRegion] {
     [
         MaskRegion(
             rect: CGRect(x: 0.1, y: 0.2, width: 0.3, height: 0.4),
-            start: 1.5, end: 4.25, style: .solid, name: "Email"
+            start: 1.5, end: 4.25, style: .solid(color: .black), name: "Email"
         ),
         MaskRegion(
             rect: CGRect(x: 0.5, y: 0.5, width: 0.25, height: 0.25),
@@ -47,7 +47,7 @@ func stylesRoundTrip() throws {
     try store.save(sampleRegions(), for: video)
     let loaded = try #require(store.load(for: video))
 
-    #expect(loaded[0].style == .solid)
+    #expect(loaded[0].style .isSolid)
     #expect(loaded[1].style == .pixelate(scale: 0.22))
 }
 
@@ -113,7 +113,7 @@ func unreadableDocumentsAreIgnored() throws {
 @Test("Restored regions are fitted to the video that's actually on disk")
 func clampingToDuration() throws {
     let region = MaskRegion(
-        rect: CGRect(x: 0, y: 0, width: 0.5, height: 0.5), start: 2, end: 30, style: .solid)
+        rect: CGRect(x: 0, y: 0, width: 0.5, height: 0.5), start: 2, end: 30, style: .solid(color: .black))
 
     let fitted = try #require(region.clamped(toDuration: 10))
     #expect(fitted.start == 2)
@@ -125,4 +125,33 @@ func clampingToDuration() throws {
 
     let untouched = try #require(region.clamped(toDuration: 60))
     #expect(untouched == region)
+}
+
+@Test("Documents written before solid masks had a colour still load")
+func documentsWithoutAColourDecodeAsBlack() throws {
+    let (store, directory) = try makeStore()
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    let video = URL(fileURLWithPath: "/tmp/legacy.mov")
+    let region = MaskRegion(
+        rect: CGRect(x: 0.1, y: 0.1, width: 0.3, height: 0.3),
+        start: 0, end: 5, style: .solid(color: MaskColor(red: 1, green: 0, blue: 0)), name: "Old"
+    )
+    try store.save([region], for: video)
+
+    // Strip the colour key back out to reproduce a document from the old build.
+    let url = store.documentURL(for: video)
+    var json = try #require(
+        try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+    var regions = try #require(json["regions"] as? [[String: Any]])
+    var style = try #require(regions[0]["style"] as? [String: Any])
+    #expect(style["color"] != nil, "fixture should start with a colour to remove")
+    style.removeValue(forKey: "color")
+    regions[0]["style"] = style
+    json["regions"] = regions
+    try JSONSerialization.data(withJSONObject: json).write(to: url)
+
+    let loaded = try #require(store.load(for: video))
+    #expect(loaded.count == 1)
+    #expect(loaded[0].style == .solid(color: .black), "expected a black fallback, got \(loaded[0].style)")
 }

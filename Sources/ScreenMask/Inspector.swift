@@ -31,7 +31,7 @@ struct Inspector: View {
                 List(selection: $model.selection) {
                     ForEach(model.regions) { region in
                         HStack(spacing: 8) {
-                            Image(systemName: region.style == .solid ? "rectangle.fill" : "square.grid.3x3.fill")
+                            Image(systemName: region.style.isSolid ? "rectangle.fill" : "square.grid.3x3.fill")
                                 .foregroundStyle(.secondary)
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(region.name)
@@ -68,11 +68,15 @@ struct Inspector: View {
             Picker(
                 "Style",
                 selection: Binding(
-                    get: { region.style == .solid ? StyleKind.solid : .pixelate },
+                    get: { region.style.isSolid ? StyleKind.solid : .pixelate },
                     set: { kind in
                         model.update(region.id) {
-                            $0.style = kind == .solid ? .solid : .pixelate(scale: 0.10)
+                            // Keep the picked colour if the user toggles away and back.
+                            $0.style = kind == .solid
+                                ? .solid(color: $0.style.solidColor ?? .black)
+                                : .pixelate(scale: 0.10)
                         }
+                        model.isPickingColor = false
                     }
                 )
             ) {
@@ -80,6 +84,44 @@ struct Inspector: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
+
+            if let color = region.style.solidColor {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Fill colour")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        ColorPicker(
+                            "",
+                            selection: Binding(
+                                get: { color.swiftUIColor },
+                                set: { picked in
+                                    model.update(region.id) { $0.style = .solid(color: .init(picked)) }
+                                }
+                            ),
+                            supportsOpacity: false
+                        )
+                        .labelsHidden()
+
+                        Button {
+                            model.isPickingColor.toggle()
+                        } label: {
+                            Label(
+                                model.isPickingColor ? "Click the video…" : "Pick from video",
+                                systemImage: "eyedropper"
+                            )
+                            .frame(maxWidth: .infinity)
+                        }
+                        .controlSize(.small)
+                        .buttonStyle(.bordered)
+                        .tint(model.isPickingColor ? .accentColor : nil)
+                    }
+                    Text("Matching the background makes the box far less obvious than black.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
 
             if case .pixelate(let scale) = region.style {
                 VStack(alignment: .leading, spacing: 2) {
