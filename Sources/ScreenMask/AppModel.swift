@@ -35,6 +35,7 @@ final class AppModel {
     private var timeObserver: Any?
     private var lastRefresh = Date.distantPast
     private let ciContext = CIContext()
+    private var frameDuration = CMTime(value: 1, timescale: 30)
     private let documents: MaskDocumentStore
     private var saveTask: Task<Void, Never>?
     private var isClosing = false
@@ -70,7 +71,8 @@ final class AppModel {
             guard let track = try await asset.loadTracks(withMediaType: .video).first else {
                 throw MaskCompositorError.noVideoTrack
             }
-            let (natural, transform) = try await track.load(.naturalSize, .preferredTransform)
+            let (natural, transform, minFrameDuration) = try await track.load(
+                .naturalSize, .preferredTransform, .minFrameDuration)
             let duration = try await asset.load(.duration)
             let composition = try await MaskCompositor.makeVideoComposition(for: asset, store: store)
 
@@ -82,6 +84,10 @@ final class AppModel {
             let oriented = natural.applying(transform)
             self.videoSize = CGSize(width: abs(oriented.width), height: abs(oriented.height))
             self.duration = max(duration.seconds, 0)
+            // Falls back to 30fps for assets that don't report a frame duration.
+            self.frameDuration = minFrameDuration.isValid && minFrameDuration.seconds > 0
+                ? minFrameDuration
+                : CMTime(value: 1, timescale: 30)
             self.selection = nil
             self.currentTime = 0
             // Assigned after `duration` is known so restored regions can be
@@ -157,6 +163,34 @@ final class AppModel {
             player.play()
         }
         isPlaying.toggle()
+    }
+
+    /// Steps whole frames while paused.
+    ///
+    /// Deliberately not `AVPlayerItem.step(byCount:)`: measured against a 30fps
+    /// clip that steps by sync samples, jumping 0.25s at a time rather than one
+    /// frame. An exact-tolerance seek of one frame duration lands on real frame
+    /// boundaries. CMTime arithmetic keeps repeated steps from drifting.
+    ///
+    /// Returns whether it moved, so the key handler can leave the event alone
+    /// when it didn't — at either end of the clip, or during playback.
+    @discardableResult
+    func stepFrame(_ count: Int) -> Bool {
+        guard hasVideo, !isPlaying, count != 0 else { return false }
+
+        // Based on the model's clock, not the player's: during a seek that
+        // hasn't landed the two disagree, and stepping from the player's value
+        // would move relative to a position the user isn't looking at.
+        // Quantising to the frame timescale also snaps to frame boundaries.
+        let current = CMTime(seconds: currentTime, preferredTimescale: frameDuration.timescale)
+        let target = CMTimeAdd(current, CMTimeMultiply(frameDuration, multiplier: Int32(clamping: count)))
+        let end = CMTime(seconds: duration, preferredTimescale: frameDuration.timescale)
+        let clamped = min(max(target, .zero), end)
+        guard clamped != current else { return false }
+
+        player.seek(to: clamped, toleranceBefore: .zero, toleranceAfter: .zero)
+        currentTime = min(max(clamped.seconds, 0), duration)
+        return true
     }
 
     func seek(to seconds: Double) {

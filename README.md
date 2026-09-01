@@ -30,6 +30,11 @@ export round-trip that reads pixels back out of the encoded file).
 6. **Close Video** clears the window so you can start on another one. The
    masks you set are kept and come back if you reopen that video.
 
+Space plays and pauses. While paused, the left and right arrow keys step one
+frame at a time — useful for finding the exact frame something appears on when
+setting a mask's in and out points. Click the video first if the arrows aren't
+doing anything; they're scoped to the video so they don't fight the mask list.
+
 The preview is the export: both run the same composition, so what you see on the
 playhead is exactly what lands in the file.
 

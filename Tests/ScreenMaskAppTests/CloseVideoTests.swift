@@ -6,7 +6,7 @@ import Testing
 import ScreenMaskKit
 
 /// Minimal real clip; AppModel refuses anything without a video track.
-private func writeClip(to url: URL) async throws {
+func writeClip(to url: URL) async throws {
     let size = CGSize(width: 320, height: 180)
     let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
     let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
