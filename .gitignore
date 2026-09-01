@@ -1,0 +1,17 @@
+# SwiftPM build products
+.build/
+.swiftpm/
+DerivedData/
+
+# Xcode
+*.xcodeproj
+*.xcworkspace
+xcuserdata/
+
+.DS_Store
+
+# Videos are never part of this repo. The whole point of this app is that
+# recordings carry things you didn't mean to publish — don't let one in by hand.
+*.mov
+*.mp4
+*.m4v

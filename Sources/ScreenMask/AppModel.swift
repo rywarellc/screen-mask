@@ -1,0 +1,236 @@
+import AVFoundation
+import Observation
+import SwiftUI
+import ScreenMaskKit
+
+@MainActor
+@Observable
+final class AppModel {
+    var url: URL?
+    var duration: Double = 0
+    var currentTime: Double = 0
+    var videoSize: CGSize = CGSize(width: 16, height: 9)
+    var isPlaying = false
+
+    var regions: [MaskRegion] = [] {
+        didSet {
+            store.regions = regions
+            scheduleSave()
+        }
+    }
+    var selection: MaskRegion.ID?
+
+    var isExporting = false
+    var exportProgress: Double = 0
+    var errorMessage: String?
+
+    let player = AVPlayer()
+    let store = RegionStore()
+
+    private var asset: AVURLAsset?
+    private var composition: AVVideoComposition?
+    private var timeObserver: Any?
+    private var lastRefresh = Date.distantPast
+    private let documents: MaskDocumentStore
+    private var saveTask: Task<Void, Never>?
+    private var terminationObserver: NSObjectProtocol?
+
+    init(documents: MaskDocumentStore = .defaultStore()) {
+        self.documents = documents
+        // A debounced save can still be pending when the user quits.
+        terminationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.flushSave() }
+        }
+    }
+
+    var hasVideo: Bool { asset != nil }
+    var aspectRatio: Double {
+        videoSize.height > 0 ? videoSize.width / videoSize.height : 16.0 / 9.0
+    }
+    var selectedRegion: MaskRegion? {
+        guard let selection else { return nil }
+        return regions.first { $0.id == selection }
+    }
+
+    // MARK: - Loading
+
+    func open(_ url: URL) async {
+        flushSave()
+        let asset = AVURLAsset(url: url)
+        do {
+            guard let track = try await asset.loadTracks(withMediaType: .video).first else {
+                throw MaskCompositorError.noVideoTrack
+            }
+            let (natural, transform) = try await track.load(.naturalSize, .preferredTransform)
+            let duration = try await asset.load(.duration)
+            let composition = try await MaskCompositor.makeVideoComposition(for: asset, store: store)
+
+            self.asset = asset
+            self.url = url
+            self.composition = composition
+            // A rotated recording reports its pre-transform natural size, and
+            // the transform can flip an axis negative — hence the abs().
+            let oriented = natural.applying(transform)
+            self.videoSize = CGSize(width: abs(oriented.width), height: abs(oriented.height))
+            self.duration = max(duration.seconds, 0)
+            self.selection = nil
+            self.currentTime = 0
+            // Assigned after `duration` is known so restored regions can be
+            // clamped, and after `url` so the didSet save targets the right file.
+            self.regions = (documents.load(for: url) ?? [])
+                .compactMap { $0.clamped(toDuration: self.duration) }
+
+            let item = AVPlayerItem(asset: asset)
+            item.videoComposition = composition
+            player.replaceCurrentItem(with: item)
+            observeTime()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func observeTime() {
+        if let timeObserver {
+            player.removeTimeObserver(timeObserver)
+        }
+        timeObserver = player.addPeriodicTimeObserver(
+            forInterval: CMTime(value: 1, timescale: 30),
+            queue: .main
+        ) { [weak self] time in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.currentTime = time.seconds
+            }
+        }
+    }
+
+    // MARK: - Transport
+
+    func togglePlayback() {
+        guard hasVideo else { return }
+        if isPlaying {
+            player.pause()
+        } else {
+            if currentTime >= duration - 0.05 { seek(to: 0) }
+            player.play()
+        }
+        isPlaying.toggle()
+    }
+
+    func seek(to seconds: Double) {
+        let clamped = min(max(seconds, 0), duration)
+        currentTime = clamped
+        player.seek(
+            to: CMTime(seconds: clamped, preferredTimescale: 600),
+            toleranceBefore: .zero,
+            toleranceAfter: .zero
+        )
+    }
+
+    /// Nudges the playhead so a paused preview redraws with the current regions.
+    ///
+    /// Throttled: a drag emits events far faster than a 4K frame can be re-rendered,
+    /// and an unthrottled exact seek per event stutters badly. The live rectangle
+    /// outline still tracks the cursor at full rate; only the masked pixels lag.
+    /// Gesture end passes `force` so the final position always lands.
+    func refreshPreview(force: Bool = false) {
+        guard hasVideo, !isPlaying else { return }
+        let now = Date()
+        guard force || now.timeIntervalSince(lastRefresh) >= 0.1 else { return }
+        lastRefresh = now
+        player.seek(
+            to: CMTime(seconds: currentTime, preferredTimescale: 600),
+            toleranceBefore: .zero,
+            toleranceAfter: .zero
+        )
+    }
+
+    // MARK: - Regions
+
+    func addRegion(rect: CGRect) {
+        let region = MaskRegion(
+            rect: rect,
+            start: 0,
+            end: duration,
+            name: "Mask \(regions.count + 1)"
+        )
+        regions.append(region)
+        selection = region.id
+        refreshPreview(force: true)
+    }
+
+    /// `force: false` is for continuous drags, where the throttle should apply.
+    /// Discrete edits — a button, a slider release — always refresh immediately.
+    func update(_ id: MaskRegion.ID, force: Bool = true, _ change: (inout MaskRegion) -> Void) {
+        guard let index = regions.firstIndex(where: { $0.id == id }) else { return }
+        change(&regions[index])
+        refreshPreview(force: force)
+    }
+
+    func delete(_ id: MaskRegion.ID) {
+        regions.removeAll { $0.id == id }
+        if selection == id { selection = nil }
+        refreshPreview(force: true)
+    }
+
+    func deleteSelected() {
+        if let selection { delete(selection) }
+    }
+
+    // MARK: - Persistence
+
+    /// Coalesces the rapid edits a drag produces into one write.
+    private func scheduleSave() {
+        guard let url else { return }
+        let snapshot = regions
+        let documents = self.documents
+        saveTask?.cancel()
+        saveTask = Task.detached(priority: .utility) {
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            try? documents.save(snapshot, for: url)
+        }
+    }
+
+    /// Writes immediately, for the moments a debounce would lose: quitting, and
+    /// switching to another video.
+    func flushSave() {
+        guard let url else { return }
+        saveTask?.cancel()
+        saveTask = nil
+        try? documents.save(regions, for: url)
+    }
+
+    // MARK: - Export
+
+    func export(to destination: URL) async {
+        guard let asset, let composition else { return }
+        flushSave()
+        isExporting = true
+        exportProgress = 0
+        defer { isExporting = false }
+
+        do {
+            try await MaskCompositor.export(
+                asset: asset,
+                composition: composition,
+                to: destination
+            ) { fraction in
+                Task { @MainActor in self.exportProgress = fraction }
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
+func timecode(_ seconds: Double) -> String {
+    guard seconds.isFinite, seconds >= 0 else { return "0:00.0" }
+    let whole = Int(seconds)
+    let tenths = Int((seconds - Double(whole)) * 10)
+    return String(format: "%d:%02d.%d", whole / 60, whole % 60, tenths)
+}
