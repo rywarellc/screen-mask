@@ -16,6 +16,9 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN/ScreenMask" "$APP/Contents/MacOS/ScreenMask"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 
+# The iconset stays the source of truth; the .icns is generated, not committed.
+iconutil -c icns Resources/AppIcon.iconset -o "$APP/Contents/Resources/AppIcon.icns"
+
 # Ad-hoc signature; without one the bundle is killed on launch on Apple silicon.
 codesign --force --sign - "$APP" >/dev/null 2>&1 || true
 

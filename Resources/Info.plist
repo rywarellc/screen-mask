@@ -8,6 +8,8 @@
     <string>Screen Mask</string>
     <key>CFBundleExecutable</key>
     <string>ScreenMask</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
     <string>local.screenmask</string>
     <key>CFBundleInfoDictionaryVersion</key>
