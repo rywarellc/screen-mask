@@ -10,7 +10,7 @@ covered during different stretches of the same recording.
 
 ```
 ./build.sh
-open .build/arm64-apple-macosx/release/ScreenMask.app
+open ".build/arm64-apple-macosx/release/Screen Mask.app"
 ```
 
 `swift test` runs the masking tests (coordinate mapping, time gating, and a full

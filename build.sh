@@ -9,7 +9,10 @@ cd "$(dirname "$0")"
 
 swift build -c "$CONFIG"
 BIN="$(swift build -c "$CONFIG" --show-bin-path)"
-APP="$BIN/ScreenMask.app"
+# Named with the space: the Dock and Finder label an app by its bundle
+# filename, so "ScreenMask.app" would show as "ScreenMask" no matter what
+# CFBundleName says. The executable inside keeps the compact name.
+APP="$BIN/Screen Mask.app"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
